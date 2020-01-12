@@ -1,0 +1,477 @@
+#!/bin/bash
+
+CONFDIR=$HOME/.kvm-cli-manager
+[[ ! -d $CONFDIR ]] && mkdir -p $CONFDIR
+
+opt=$1
+val=$2
+add=$3
+
+end='\033[0m'
+red='\033[0;31m\033[1m'
+green='\033[0;32m\033[1m'
+yellow='\033[0;33m\033[1m'
+blue='\033[0;34m\033[1m'
+white='\033[0;37m\033[1m'
+
+red() {
+    echo -e "${red}$@${end}"
+}
+
+yellow() {
+    echo -e "${yellow}$@${end}"
+}
+
+blue() {
+    echo -e "${blue}$@${end}"
+}
+
+white() {
+    echo -e "${white}$@${end}"
+}
+
+green() {
+    echo -e "${green}$@${end}"
+}
+
+
+createVMconf() {
+    [[ -z $vmhostname ]] && vmhostname=defaultvmname.lvm
+    while (true); do
+        read -p "Enter name of the VM: " vmdomain
+        read -p "Enter IP of the VM: " vmip
+        read -p "Enter HOSTNAME of the VM (leave blank for default):" vmhostname
+        read -p "Enter default restore snapshot of VM (will be used for restoring VM):" vmresetdefault
+        if [[ -z "$vmdomain" ]] || [[ -z "$vmip" ]]; then
+            red "\n\nIncomplete input values"
+            ctPress
+        else
+            break
+        fi
+    done
+    [[ -z $vmresetdefault ]] && vmresetdefault=""
+    echo -e "name=$vmdomain\nip=$vmip\nhostname=$vmhostname\nbasesnapshot=$vmresetdefault" > "$CONFDIR/`echo $vmdomain | sed 's/\s/-/g'`.vmcnf"
+    green "\nVM was added to KVM Manager!"
+}
+
+ctPress() {
+    echo -e "\n"
+    read -n1 -p "Press any key to continue... "
+    clear
+}
+
+updateVMConf() {
+    local domain=$1
+    clear
+    echo -e "${blue}=:=:=:=:=:=:=${end} ${yellow}Update $domain's Conf${end} ${blue}=:=:=:=:=:=:=${end}\n\n"
+    white "1) Update VM Name\n2) Update VM IP\n3) Update VM Hostname\n4) Update Base Snapshot\n5) Exit to VM's menu\n"
+    read -p "Enter your choice: " upchoice
+    case $upchoice in
+        1)
+        chnageVMName "$domain"
+        updateVMConf "$domain"
+        ;;
+
+        2)
+        changeVMIp "$domain"
+        updateVMConf "$domain"
+        ;;
+
+        3)
+        changeVMHost "$domain"
+        updateVMConf "$domain"
+        ;;
+
+        4)
+        changeBaseSnap "$domain"
+        updateVMConf "$domain"
+        ;;
+
+        5)
+        vmAction "$domain"
+        ;;
+
+        *)
+        red "Invalid choice!"
+        ctPress
+        updateVMConf "$domain"
+    esac
+
+}
+
+deleteSnapShot() {
+    clear
+    local domain=$1
+    available_snaps=($(virsh snapshot-list $domain | sed -n '3,$p' | awk '{print$1}' | xargs))
+    if [[ ${#available_snaps[@]} -eq 0 ]]; then
+        red "No snapshot's available!"
+    else
+        echo -e "${blue}:=:=:=:=:=:=:${end} ${yellow}Available Snapshots of $domain${end} ${blue}:=:=:=:=:=:=:${end}\n\n"
+        index=0
+        for snapshot in ${available_snaps[@]}; do
+            index=$((index+1))
+            white "$index) $snapshot \n"
+        done
+        while (true); do
+            read -p "Enter the number of snapshot to delete (q for vm menu): " snapdel
+            if [[ $snapdel = "q" ]]; then
+                vmAction "$domain"
+                break
+            fi
+            if [[ -z $snapdel ]] || [[ $snapdel -lt 1 ]] || [[ $snapdel -gt ${#available_snaps[@]} ]]; then
+                red "Invalid snapshot number"
+            else
+                break
+            fi
+        done
+        snapdel=$((snapdel-1))
+        virsh snapshot-delete "$domain" "${available_snaps[$snapdel]}" >/dev/null >&1
+        if [[ $? -eq 0 ]]; then
+            green "Snapshot ${available_snaps[$snapdel]} was deleted successfully!"
+        else
+            red "Failed to delete the snapshot ${available_snaps[$snapdel]}"
+        fi
+    fi
+    ctPress
+}
+
+changeBaseSnap() {
+    local domain=$1
+    available_snaps=($(virsh snapshot-list $domain | sed -n '3,$p' | awk '{print$1}' | xargs))
+    if [[ ${#available_snaps[@]} -eq 0 ]]; then
+        red "No snapshot's available!"
+    else
+        echo -e "${blue}:=:=:=:=:=:=:${end} ${yellow}Available Snapshots of $domain${end} ${blue}:=:=:=:=:=:=:${end}\n\n"
+        index=0
+        for snapshot in ${available_snaps[@]}; do
+            index=$((index+1))
+            white "$index) $snapshot \n"
+        done
+        while (true); do
+            read -p "Enter the number of snapshot to set as base snapshot (q for vm menu): " selectedsnap
+            if [[ $selectedsnap = "q" ]]; then
+                vmAction "$domain"
+                break
+            fi
+            if [[ -z $selectedsnap ]] || [[ $selectedsnap -lt 1 ]] || [[ $selectedsnap -gt ${#available_snaps[@]} ]]; then
+                red "Invalid snapshot number"
+            else
+                break
+            fi
+        done
+        selectedsnap=$((selectedsnap-1))
+        sed -i "s/basesnapshot=*/basesnapshot=${available_snaps[$selectedsnap]}/g" "$CONFDIR/`echo $domain | sed 's/\s/-/g'`.vmcnf"
+        [[ $? -eq 0 ]] && green "\nUpdated base snapshot of $domain successfully!" || red "Failed to update base snapshot of $domain!"
+    fi
+    ctPress
+}
+
+changeVMIp() {
+    local domain=$1
+    while (true); do 
+        read -p "Enter new ip for $domain: " upvvmip
+        [[ ! -z $upvvmip ]] && break
+    done
+    sed -i "s/ip=*/ip=$upvvmip/g" "$CONFDIR/`echo $domain | sed 's/\s/-/g'`.vmcnf"
+    [[ $? -eq 0 ]] && green "\nUpdated configured ip of $domain successfully!" || red "Failed to update configured ip of $domain!"
+    ctPress
+}
+
+chnageVMName() {
+    local domain=$1
+    while (true); do 
+        read -p "Enter new name for $domain: " upvmname
+        [[ ! -z $upvmname ]] && break
+    done
+    sed -i "s/name=*/name=$upvmname/g" "$CONFDIR/`echo $domain | sed 's/\s/-/g'`.vmcnf"
+    [[ $? -eq 0 ]] && green "\nUpdated configured name of domain $domain to $upvmname successfully!" || red "Failed to update configured name of $domain!"
+    ctPress
+    mv $CONFDIR/`echo $domain | sed 's/\s/-/g'`.vmcnf $CONFDIR/`echo $upvmname | sed 's/\s/-/g'`.vmcnf >/dev/null >&1
+    vmMenu
+}
+
+changeVMHost() {
+    local domain=$1
+    while (true); do 
+        read -p "Enter new hostname for $domain: " upvmhost
+        [[ ! -z $upvmhost ]] && break
+    done
+    sed -i "s/host=*/host=$upvmhost/g" "$CONFDIR/`echo $domain | sed 's/\s/-/g'`.vmcnf"
+    [[ $? -eq 0 ]] && green "\nUpdated configured hostname of $domain successfully!" || red "Failed to update configured hostname of $domain!"
+    ctPress
+}
+
+
+
+vmMenu() {
+    clear
+    vmcount=$(find $CONFDIR -name '*.vmcnf' | wc -l)
+    if [[ $vmcount -gt 0 ]]; then
+        vmarray=($(find $CONFDIR -iname '*.vmcnf' -exec  basename {} \; | xargs))
+        index=0
+        echo -e "\n\n${blue}------------${end} ${yellow}[[ List Of VM's ]]${end} ${blue}------------${end} \n\n"
+        for vm in ${vmarray[@]}; do
+            index=$(($index+1))
+            white "$index) $(echo $vm | sed -e 's/.vmcnf//g')\n"
+        done
+        echo -e "\n"
+
+        while (true); do
+            read -p "Enter VM Number: " selectedvm
+            if [[ ! -z $(echo $selectedvm | grep -P '\d+') ]]; then
+                selectedvm=$(($selectedvm-1))
+                if [[ -z $selectedvm ]] || [[ -z ${vmarray[$selectedvm]} ]] || [[ $selectedvm -lt 0 ]]; then
+                    red "Invalid VM!";
+                else
+                    break
+                fi
+            else
+                red "Invalid VM!";
+            fi
+        done
+        vmname=`echo -e "${vmarray[$selectedvm]}" | sed -e 's/.vmcnf//g'`
+        vmAction "$vmname"
+    else
+        while (true); do
+            read -p "No vm's configured. Do you wish configure one now? (y/n)" cnf
+            if [[ $cnf =~ y|n|Y|N ]]; then
+                break;
+            fi
+        done
+        if [[ $cnf =~ y|Y ]]; then
+            createVMconf
+        else
+            exit
+        fi
+    fi
+}
+
+vmAction() {
+    local domain=$1
+    if [[ -z $domain ]] || [[ ! -f "$CONFDIR/`echo $domain | sed 's/\s/-/g'`.vmcnf" ]]; then
+        red "Invalid Domain!"
+        sleep 1
+        vmMenu
+    else
+        clear
+        echo -e "${yellow}##########${end} ${green}[[ $domain ]]${end} ${yellow}##########${end}\n\n"
+        echo -e "${blue}Manage your VM:${end} \n\n${white}1) SSH to VM\n2) Restore VM\n3) Start VM\n4) Stop VM\n5) Create Snapshot\n6) Delete Snapshot\n7) VM Status\n8) Update VM Conf\n9) Exit to Main Menu${end}\n\n"
+        read -p "Enter your choice: " vmactchoice
+
+        case $vmactchoice in
+            1)
+            vmSSH "$domain"
+            exit
+            ;;
+
+            2)
+            vmRestore "$domain"
+            vmAction "$domain"
+            ;;
+
+            3)
+            vmStart "$domain"
+            vmAction "$domain"
+            ;;
+
+            4)
+            vmStop "$domain"
+            vmAction "$domain"
+            ;;
+
+            5)
+            vmSnapShot "$domain"
+            vmAction "$domain"
+            ;;
+
+            6)
+            deleteSnapShot "$domain"
+            vmAction "$domain"
+            ;;
+
+            7)
+            vmStatus "$domain"
+            vmAction "$domain"
+            ;;
+
+            8)
+            updateVMConf "$domain"
+            vmAction "$domain"
+            ;;
+
+            9)
+            vmMenu
+            ;;
+
+            *)
+            yellow "\nInvalid choice!!"
+            ctPress
+            vmAction "$domain"
+        esac
+    fi
+}
+
+getVMConf() {
+    local domain=$domain
+    source $CONFDIR/`echo $domain | sed 's/\s/-/g'`.vmcnf
+}
+
+vmSSH() {
+    local domain=$1
+    getVMConf "$domain"
+    ssh root@$ip
+    ctPress
+}
+
+isValidSnapshot() {
+    local domain=$1
+    local snapshot=$2
+    virsh snapshot-info "$domain" "$snapshot" >/dev/null 2>&1
+    [[ $? -eq 0 ]] && return 0 || return 1
+}
+
+vmRestore() {
+    local domain=$1
+    getVMConf "$domain"
+    no_of_snaps=$(virsh snapshot-list "$domain" | sed -n 3p | wc -w)
+    if [[ $no_of_snaps -eq 0 ]]; then
+        while (true); do
+            read -p "No snapshots available for restore! create one now? (y/n)" cnf
+            if [[ $cnf =~ y|Y|n|N ]]; then
+                break;
+            fi
+        done
+        if [[ $cnf =~ y|Y ]]; then
+            vmSnapShot "$domain"
+        else
+            ctPress
+            return 1
+        fi
+    fi
+    if [[ ! -z $basesnapshot ]]; then
+        snapshot=$basesnapshot
+    else
+        available_snaps=($(virsh snapshot-list $domain | sed -n '3,$p' | awk '{print$1}' | xargs))
+        echo -e "${blue}:=:=:=:=:=:=:${end} ${yellow}Available Snapshots of $domain${end} ${blue}:=:=:=:=:=:=:${end}\n\n"
+        index=0
+        for snapshot in ${available_snaps[@]}; do
+            index=$((index+1))
+            white "$index) $snapshot \n"
+        done
+        while (true); do
+            read -p "Enter the number of snapshot to restore (q for vm menu): " snaprestore
+            if [[ $snaprestore = "q" ]]; then
+                vmAction "$domain"
+                break
+            fi
+            if [[ -z $snaprestore ]] || [[ $snaprestore -lt 1 ]] || [[ $snaprestore -gt ${#available_snaps[@]} ]]; then
+                red "Invalid snapshot number"
+            else
+                break
+            fi
+        done
+        snaprestore=$((snapdel-1))
+    fi
+    isValidSnapshot "$domain" "${available_snaps[$snaprestore]}"
+    if [[ $? -ne 0 ]]; then 
+        red "Invalid Snapshot!"
+        ctPress
+        return 1
+    fi
+    virsh snapshot-revert "$domain" --snapshotname "${available_snaps[$snaprestore]}"
+    if [[ $? -eq 0 ]]; then
+        green "Successfully restored the snapshot ${available_snaps[$snaprestore]}"
+    else
+        red "Failed to restore the snapshot ${available_snaps[$snaprestore]}"
+    fi
+    ctPress
+    return 0
+}
+
+isValidVm() {
+    local domain=$1
+    if [[ -f "$CONFDIR/`echo $domain | sed 's/\s/-/g'`.vmcnf" ]];then
+        virsh dominfo "$domain" >/dev/null 2>&1
+        [[ $? -eq 0 ]] && return 0 || return 1
+    else
+        return 1
+    fi
+}
+
+vmStart() {
+    local domain=$1
+    isValidVm "$domain"
+    if [[ `virsh domstate "$domain"` =~ running ]]; then
+        yellow "\nVM $domain is currently running!"
+        ctPress
+        return 1
+    fi
+    if [[ $? -eq 0 ]]; then
+        virsh start $domain
+    else 
+        red "Invalid Domain!"
+    fi
+    ctPress
+}
+
+vmStop() {
+    local domain=$1
+    isValidVm "$domain"
+    [[ $? -ne 0 ]] && red "Invalid Domain!" && ctPress && return 1
+    if [[ `virsh domstate "$domain"` =~ off ]]; then
+        yellow "\nVM $domain is already stopped!"
+        ctPress
+        return 1
+    fi
+    yellow `virsh shutdown "$domain"`
+    ctPress
+}
+
+vmStatus() {
+    local domain=$1
+    isValidVm "$domain"
+    [[ $? -eq 0 ]] && green "\nStatus: ${blue}`virsh domstate $domain`${end}" || red "Invalid Domain!"
+    ctPress
+}
+
+vmSnapShot() {
+    local domain=$1
+    isValidVm "$domain"
+    while (true); do
+        read -p "Name for the snapshot: " snapname
+        [[ ! -z $snapname ]] && break
+    done
+    snapname=$(echo $snapname | sed -e 's/\s/-/g')
+    [[ $? -eq 0 ]] && virsh snapshot-create-as --domain "$domain" --name "$snapname" || red "Invalid Domain!"
+    ctPress
+}
+
+case $opt in
+    --create|-c)
+        clear
+        createVMconf
+    ;;
+
+    -r|--reset)
+        vmRestore "$val"
+    ;;
+
+    --ssh|-sh)
+        vmSSH "$val"
+    ;;
+
+    --snapshot|-ss)
+        vmSnapShot "$val"
+    ;;
+
+    --start|-s)
+        vmStart "$val"
+    ;;
+
+    --stop|-x)
+        vmStop "$val"
+    ;;
+
+    *)
+        vmMenu
+esac
