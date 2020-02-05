@@ -160,7 +160,7 @@ changeBaseSnap() {
             fi
         done
         selectedsnap=$((selectedsnap-1))
-        sed -i "s/basesnapshot=*/basesnapshot=${available_snaps[$selectedsnap]}/g" "$CONFDIR/`echo $domain | sed 's/\s/-/g'`.vmcnf"
+        sed -i "s/basesnapshot=.*/basesnapshot=${available_snaps[$selectedsnap]}/g" "$CONFDIR/`echo $domain | sed 's/\s/-/g'`.vmcnf"
         [[ $? -eq 0 ]] && green "\nUpdated base snapshot of $domain successfully!" || red "Failed to update base snapshot of $domain!"
     fi
     ctPress
@@ -172,7 +172,7 @@ changeVMIp() {
         read -p "Enter new ip for $domain: " upvvmip
         [[ ! -z $upvvmip ]] && break
     done
-    sed -i "s/ip=*/ip=$upvvmip/g" "$CONFDIR/`echo $domain | sed 's/\s/-/g'`.vmcnf"
+    sed -i "s/ip=.*/ip=$upvvmip/g" "$CONFDIR/`echo $domain | sed 's/\s/-/g'`.vmcnf"
     [[ $? -eq 0 ]] && green "\nUpdated configured ip of $domain successfully!" || red "Failed to update configured ip of $domain!"
     ctPress
 }
@@ -183,7 +183,7 @@ chnageVMName() {
         read -p "Enter new name for $domain: " upvmname
         [[ ! -z $upvmname ]] && break
     done
-    sed -i "s/name=*/name=$upvmname/g" "$CONFDIR/`echo $domain | sed 's/\s/-/g'`.vmcnf"
+    sed -i "s/name=.*/name=$upvmname/g" "$CONFDIR/`echo $domain | sed 's/\s/-/g'`.vmcnf"
     [[ $? -eq 0 ]] && green "\nUpdated configured name of domain $domain to $upvmname successfully!" || red "Failed to update configured name of $domain!"
     ctPress
     mv $CONFDIR/`echo $domain | sed 's/\s/-/g'`.vmcnf $CONFDIR/`echo $upvmname | sed 's/\s/-/g'`.vmcnf >/dev/null >&1
@@ -196,7 +196,7 @@ changeVMHost() {
         read -p "Enter new hostname for $domain: " upvmhost
         [[ ! -z $upvmhost ]] && break
     done
-    sed -i "s/host=*/host=$upvmhost/g" "$CONFDIR/`echo $domain | sed 's/\s/-/g'`.vmcnf"
+    sed -i "s/host=.*/host=$upvmhost/g" "$CONFDIR/`echo $domain | sed 's/\s/-/g'`.vmcnf"
     [[ $? -eq 0 ]] && green "\nUpdated configured hostname of $domain successfully!" || red "Failed to update configured hostname of $domain!"
     ctPress
 }
